@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teste A* Simples</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .grid { 
+            display: grid; 
+            grid-template-columns: repeat(10, 45px);
+            gap: 2px;
+            margin: 20px 0;
+        }
+        .cell { 
+            width: 45px; 
+            height: 45px; 
+            border: 2px solid #ccc; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center;
+        }
+        .start { background: green; color: white; }
+        .goal { background: red; color: white; }
+    </style>
+</head>
+<body>
+    <h1>Teste Grid A*</h1>
+    <div class="grid" id="test-grid"></div>
+    <button onclick="testGrid()">Criar Grid de Teste</button>
+    
+    <script>
+        function testGrid() {
+            console.log('Testando grid...');
+            const grid = document.getElementById('test-grid');
+            grid.innerHTML = '';
+            
+            for (let row = 0; row < 10; row++) {
+                for (let col = 0; col < 10; col++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.textContent = row + ',' + col;
+                    
+                    if (row === 0 && col === 0) {
+                        cell.className += ' start';
+                        cell.innerHTML = 'S';
+                    } else if (row === 9 && col === 9) {
+                        cell.className += ' goal';
+                        cell.innerHTML = 'G';
+                    }
+                    
+                    grid.appendChild(cell);
+                }
+            }
+            console.log('Grid criado com sucesso!');
+        }
+        
+        // Executar ao carregar
+        window.addEventListener('load', function() {
+            console.log('Página carregada!');
+            testGrid();
+        });
+    </script>
+</body>
+</html>

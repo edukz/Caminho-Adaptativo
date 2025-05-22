@@ -39,20 +39,40 @@
                     </div>
                 </div>
 
-                <!-- Sistema de Log -->
-                <div class="log-system">
-                    <div class="log-header">
-                        <h4>📋 Log do Sistema <span class="log-capacity">(máx: 1000 entradas)</span></h4>
-                        <div class="log-controls">
-                            <button onclick="clearLog()" class="log-btn">🗑️ Limpar</button>
-                            <button onclick="toggleAutoScroll()" class="log-btn" id="auto-scroll-btn">📜 Auto-scroll: ON</button>
-                            <button onclick="showLogStats()" class="log-btn">📊 Stats</button>
+                <!-- Sistemas de Log -->
+                <div class="logs-container">
+                    <!-- Log do Sistema -->
+                    <div class="log-system">
+                        <div class="log-header">
+                            <h4>📋 Log do Sistema <span class="log-capacity">(máx: 500 entradas)</span></h4>
+                            <div class="log-controls">
+                                <button onclick="clearSystemLog()" class="log-btn">🗑️ Limpar</button>
+                                <button onclick="toggleSystemAutoScroll()" class="log-btn" id="system-auto-scroll-btn">📜 Auto-scroll: ON</button>
+                            </div>
+                        </div>
+                        <div class="log-container" id="system-log-container">
+                            <div class="log-entry system">
+                                <span class="log-time">00:00:00</span>
+                                <span class="log-message">Sistema iniciado - Pronto para navegação!</span>
+                            </div>
                         </div>
                     </div>
-                    <div class="log-container" id="log-container">
-                        <div class="log-entry system">
-                            <span class="log-time">00:00:00</span>
-                            <span class="log-message">Sistema iniciado - Pronto para navegação!</span>
+                    
+                    <!-- Log Educacional -->
+                    <div class="log-system">
+                        <div class="log-header">
+                            <h4>🎓 Log Educacional <span class="log-capacity">(máx: 500 entradas)</span></h4>
+                            <div class="log-controls">
+                                <button onclick="clearEducationalLog()" class="log-btn">🗑️ Limpar</button>
+                                <button onclick="toggleEducationalAutoScroll()" class="log-btn" id="educational-auto-scroll-btn">📜 Auto-scroll: ON</button>
+                                <button onclick="toggleEducationalMode()" id="educational-mode-toggle" class="log-btn secondary active">🎓 ON</button>
+                            </div>
+                        </div>
+                        <div class="log-container" id="educational-log-container">
+                            <div class="log-entry learning">
+                                <span class="log-time">00:00:00</span>
+                                <span class="log-message">🎓 Modo Educacional ativo - O A* explicará suas decisões aqui!</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -76,6 +96,11 @@
                         <button onclick="autoPlay()" id="auto-btn">⏯️ Auto Play</button>
                     </div>
                     
+                    <!-- Controle do Modo Educacional -->
+                    <div class="button-group" id="educational-controls">
+                        <button onclick="toggleEducationalMode()" id="educational-mode-btn" class="secondary active">🎓 Modo Educacional: ON</button>
+                    </div>
+                    
                     <!-- Gerador de Cenários -->
                     <div class="scenario-generator" id="scenario-controls">
                         <h4>🎲 Gerador de Cenários</h4>
@@ -91,6 +116,7 @@
                             <button onclick="generateMaze('chambers')" class="maze-btn">🏠 Câmaras</button>
                         </div>
                     </div>
+                    
                     
                     <!-- Controle de velocidade (Demo e Interativo) -->
                     <div class="speed-control" id="speed-controls">

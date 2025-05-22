@@ -1,4 +1,4 @@
-const GRID_SIZE = 10;
+let GRID_SIZE = 10;
 let currentStepIndex = 0;
 let autoPlayInterval = null;
 let currentMode = 'demo';
@@ -9,11 +9,55 @@ let character = null;
 let walkingInterval = null;
 let currentWalkStep = 0;
 let autoScroll = true;
+let educationalAutoScroll = true;
 let startTime = Date.now();
 let isDrawingPath = false;
 let isMouseDown = false;
 let movingObstaclesInterval = null;
 let finalApproach = false;
+let spawnInterval = null;
+let educationalMode = true; // Modo educacional ativado por padrão
+
+// Função auxiliar para obter dimensões do grid atual
+function getGridDimensions() {
+    let cellSize, gap;
+    
+    // SOLUÇÃO SIMPLES: Tamanhos fixos mas responsivos
+    switch(GRID_SIZE) {
+        case 8:
+            cellSize = 60;
+            gap = 3;
+            break;
+        case 10:
+            cellSize = 50;
+            gap = 3;
+            break;
+        default:
+            cellSize = 50;
+            gap = 3;
+    }
+    
+    console.log(`Grid ${GRID_SIZE}x${GRID_SIZE}: cellSize=${cellSize}px, gap=${gap}px`);
+    
+    return {
+        cellSize,
+        gap,
+        totalCellSize: cellSize + gap,
+        characterSize: Math.max(25, cellSize * 0.75),
+        gridPadding: 20
+    };
+}
+
+// Configurações Avançadas
+let advancedConfig = {
+    gridSize: 10,
+    movementType: 8, // 8-direções ou 4-direções
+    obstacleSpeed: 3000, // velocidade em ms
+    spawnFrequency: 0, // 0 = desabilitado, >0 = intervalo em ms
+    replanLimit: 5, // limite de recálculos
+    showCoordinates: true,
+    highlightOriginal: false
+};
 let gameState = {
     start: [0, 0],
     goal: [9, 9],
@@ -96,8 +140,9 @@ function setMode(mode) {
         const speedControls = document.getElementById('speed-controls');
         const drawingControls = document.getElementById('drawing-controls');
         
-        // Parar obstáculos móveis se estiverem ativos
+        // Parar obstáculos móveis e auto-spawn se estiverem ativos
         stopMovingObstacles();
+        stopAutoSpawn();
         
         if (mode === 'custom') {
             // Modo Desenhar: apenas controles de desenho
@@ -115,6 +160,9 @@ function setMode(mode) {
             if (mode === 'interactive') {
                 calculateAndShowPath();
                 startMovingObstacles(); // Iniciar obstáculos móveis
+                if (advancedConfig.spawnFrequency > 0) {
+                    startAutoSpawn(); // Iniciar auto-spawn se configurado
+                }
             } else {
                 resetDemo();
             }
@@ -325,41 +373,73 @@ function createGrid(stepData = null) {
 }
 
 function createCharacter() {
+    // Remover personagem existente
     if (character) {
         character.remove();
+        character = null;
+    }
+    
+    // Validar posição inicial
+    if (gameState.start[0] >= GRID_SIZE || gameState.start[1] >= GRID_SIZE || 
+        gameState.start[0] < 0 || gameState.start[1] < 0) {
+        gameState.start = [0, 0];
+        addLogEntry('system', '⚠️ Posição inicial corrigida para (0,0)');
     }
     
     character = document.createElement('div');
     character.className = 'character';
     character.id = 'walking-character';
     
-    // Posicionar o personagem na célula inicial usando posicionamento relativo ao grid
+    // Verificar se a célula inicial existe
     const startCell = document.getElementById(`cell-${gameState.start[0]}-${gameState.start[1]}`);
-    if (startCell) {
-        // Calcular posição baseada no índice da célula no grid
-        const cellSize = 47; // 45px width + 2px gap
-        const gridPadding = 20; // padding do grid
-        
-        const left = gameState.start[1] * cellSize + gridPadding + 5; // 5px para centralizar
-        const top = gameState.start[0] * cellSize + gridPadding + 5;
+    if (!startCell) {
+        addLogEntry('error', `❌ Célula inicial (${gameState.start[0]},${gameState.start[1]}) não encontrada!`);
+        // Forçar posição (0,0)
+        gameState.start = [0, 0];
+    }
+    
+    const dims = getGridDimensions();
+    const grid = document.getElementById('grid');
+    
+    if (grid) {
+        const left = gameState.start[1] * dims.totalCellSize + dims.gridPadding + (dims.cellSize / 2) - (dims.characterSize / 2);
+        const top = gameState.start[0] * dims.totalCellSize + dims.gridPadding + (dims.cellSize / 2) - (dims.characterSize / 2);
         
         character.style.position = 'absolute';
         character.style.left = left + 'px';
         character.style.top = top + 'px';
+        character.style.width = dims.characterSize + 'px';
+        character.style.height = dims.characterSize + 'px';
+        character.style.zIndex = '1000';
+        character.style.pointerEvents = 'none';
         
-        document.getElementById('grid').style.position = 'relative';
-        document.getElementById('grid').appendChild(character);
+        grid.style.position = 'relative';
+        grid.appendChild(character);
         
         // Log da criação do personagem
-        addLogEntry('system', `Robô posicionado em <span class="log-coordinates">(${gameState.start[0]},${gameState.start[1]})</span>`);
+        addLogEntry('success', `🤖 Robô criado em (${gameState.start[0]},${gameState.start[1]}) - Tamanho: ${dims.characterSize}px`);
+        console.log(`Personagem criado na posição: left=${left}px, top=${top}px`);
+    } else {
+        addLogEntry('error', '❌ Grid não encontrado! Não foi possível criar o robô.');
     }
 }
 
 function moveCharacterToCell(row, col, callback = null) {
     if (!character) return;
     
+    // VALIDAÇÃO CRÍTICA: Verificar se posição está dentro dos limites
+    if (row < 0 || row >= GRID_SIZE || col < 0 || col >= GRID_SIZE) {
+        addLogEntry('error', `🚫 MOVIMENTO INVÁLIDO! Tentativa de mover para (${row},${col}) - Grid é ${GRID_SIZE}x${GRID_SIZE}`);
+        if (callback) callback();
+        return;
+    }
+    
     const targetCell = document.getElementById(`cell-${row}-${col}`);
-    if (!targetCell) return;
+    if (!targetCell) {
+        addLogEntry('error', `🚫 Célula (${row},${col}) não existe no DOM!`);
+        if (callback) callback();
+        return;
+    }
     
     // MARCAR A CÉLULA COMO PISADA IMEDIATAMENTE
     if (!gameState.steppedCells.some(p => p[0] === row && p[1] === col)) {
@@ -381,12 +461,23 @@ function moveCharacterToCell(row, col, callback = null) {
     // Log do movimento
     addLogEntry('movement', `Movendo para <span class="log-coordinates">(${row},${col})</span>`);
     
-    // Calcular nova posição baseada no índice da célula
-    const cellSize = 47; // 45px width + 2px gap
-    const gridPadding = 20; // padding do grid
+    // Calcular nova posição baseada na posição real da célula no DOM
+    const targetCellRect = targetCell.getBoundingClientRect();
+    const gridRect = targetCell.parentElement.getBoundingClientRect();
     
-    const newLeft = col * cellSize + gridPadding + 5; // 5px para centralizar
-    const newTop = row * cellSize + gridPadding + 5;
+    // Posição relativa à grid container
+    const cellLeft = targetCellRect.left - gridRect.left;
+    const cellTop = targetCellRect.top - gridRect.top;
+    
+    const dims = getGridDimensions();
+    
+    // Centralizar o robô na célula usando as dimensões reais
+    const newLeft = cellLeft + (targetCellRect.width / 2) - (dims.characterSize / 2);
+    const newTop = cellTop + (targetCellRect.height / 2) - (dims.characterSize / 2);
+    
+    console.log(`🎯 Movendo robô para (${row},${col})`);
+    console.log(`   Célula: ${targetCellRect.width}x${targetCellRect.height} em ${cellLeft},${cellTop}`);
+    console.log(`   Robô: ${dims.characterSize}x${dims.characterSize} -> ${newLeft}px, ${newTop}px`);
     
     // Adicionar classe de movimento
     character.classList.add('moving', 'walking');
@@ -655,7 +746,7 @@ function startMovingObstacles() {
     
     movingObstaclesInterval = setInterval(() => {
         moveObstacles();
-    }, 2000);
+    }, advancedConfig.obstacleSpeed);
 }
 
 function stopMovingObstacles() {
@@ -741,7 +832,22 @@ function removeFinalApproachGlow() {
 
 // Sistema de Log
 function addLogEntry(type, message) {
-    const logContainer = document.getElementById('log-container');
+    // Determinar qual container usar baseado no tipo
+    let logContainer, useAutoScroll;
+    
+    if (type === 'learning') {
+        logContainer = document.getElementById('educational-log-container');
+        useAutoScroll = educationalAutoScroll;
+    } else {
+        logContainer = document.getElementById('system-log-container');
+        useAutoScroll = autoScroll;
+    }
+    
+    if (!logContainer) {
+        console.log(`LOG [${type}]: ${message}`);
+        return;
+    }
+    
     const logEntry = document.createElement('div');
     logEntry.className = `log-entry ${type}`;
     
@@ -761,15 +867,15 @@ function addLogEntry(type, message) {
     logContainer.appendChild(logEntry);
     
     // Auto-scroll para o final se ativado
-    if (autoScroll) {
+    if (useAutoScroll) {
         logContainer.scrollTop = logContainer.scrollHeight;
     }
     
-    // Limitar número de entradas (manter últimas 1000)
+    // Limitar número de entradas (manter últimas 500 para cada log)
     const entries = logContainer.querySelectorAll('.log-entry');
-    if (entries.length > 1000) {
-        // Remove as 100 entradas mais antigas de uma vez para melhor performance
-        for (let i = 0; i < 100; i++) {
+    if (entries.length > 500) {
+        // Remove as 50 entradas mais antigas de uma vez para melhor performance
+        for (let i = 0; i < 50; i++) {
             if (entries[i]) {
                 entries[i].remove();
             }
@@ -777,17 +883,54 @@ function addLogEntry(type, message) {
     }
 }
 
-function clearLog() {
-    const logContainer = document.getElementById('log-container');
+function clearSystemLog() {
+    const logContainer = document.getElementById('system-log-container');
     const entriesCount = logContainer.querySelectorAll('.log-entry').length;
     logContainer.innerHTML = '';
-    addLogEntry('system', `🗑️ Log limpo - ${entriesCount} entradas removidas. Sistema reiniciado.`);
+    addLogEntry('system', `🗑️ Log do sistema limpo - ${entriesCount} entradas removidas.`);
 }
 
-function toggleAutoScroll() {
+function clearEducationalLog() {
+    const logContainer = document.getElementById('educational-log-container');
+    const entriesCount = logContainer.querySelectorAll('.log-entry').length;
+    logContainer.innerHTML = '';
+    addLogEntry('learning', `🗑️ Log educacional limpo - ${entriesCount} entradas removidas.`);
+}
+
+function toggleSystemAutoScroll() {
     autoScroll = !autoScroll;
-    const btn = document.getElementById('auto-scroll-btn');
+    const btn = document.getElementById('system-auto-scroll-btn');
     btn.textContent = `📜 Auto-scroll: ${autoScroll ? 'ON' : 'OFF'}`;
+}
+
+function toggleEducationalAutoScroll() {
+    educationalAutoScroll = !educationalAutoScroll;
+    const btn = document.getElementById('educational-auto-scroll-btn');
+    btn.textContent = `📜 Auto-scroll: ${educationalAutoScroll ? 'ON' : 'OFF'}`;
+}
+
+function toggleEducationalMode() {
+    educationalMode = !educationalMode;
+    const btn = document.getElementById('educational-mode-toggle');
+    const mainBtn = document.getElementById('educational-mode-btn');
+    
+    if (btn) {
+        btn.textContent = `🎓 ${educationalMode ? 'ON' : 'OFF'}`;
+        btn.className = `log-btn secondary ${educationalMode ? 'active' : ''}`;
+    }
+    
+    if (mainBtn) {
+        mainBtn.textContent = `🎓 Modo Educacional: ${educationalMode ? 'ON' : 'OFF'}`;
+        mainBtn.className = `secondary ${educationalMode ? 'active' : ''}`;
+    }
+    
+    if (educationalMode) {
+        addLogEntry('system', '🎓 Modo Educacional ATIVADO - O algoritmo A* explicará suas decisões');
+        addLogEntry('learning', '🎓 Modo Educacional ATIVADO - Pronto para explicar decisões do A*!');
+    } else {
+        addLogEntry('system', '🎓 Modo Educacional DESATIVADO - Logs simplificados');
+        addLogEntry('learning', '🎓 Modo Educacional DESATIVADO - Logs educacionais pausados.');
+    }
 }
 
 function showLogStats() {
@@ -906,17 +1049,28 @@ function findPath(start, goal, obstacles) {
     // Função heurística (distância Manhattan)
     const heuristic = (a, b) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]);
     
-    // Função para obter vizinhos válidos (apenas células adjacentes)
+    // Função para obter vizinhos válidos (baseado na configuração de movimento)
     const getNeighbors = (pos) => {
         const neighbors = [];
         const [row, col] = pos;
         
-        // 8 direções possíveis (incluindo diagonais)
-        const directions = [
-            [-1, -1], [-1, 0], [-1, 1],
-            [0, -1],           [0, 1],
-            [1, -1],  [1, 0],  [1, 1]
-        ];
+        // Direções baseadas na configuração
+        let directions;
+        if (advancedConfig.movementType === 8) {
+            // 8 direções (incluindo diagonais)
+            directions = [
+                [-1, -1], [-1, 0], [-1, 1],
+                [0, -1],           [0, 1],
+                [1, -1],  [1, 0],  [1, 1]
+            ];
+        } else {
+            // 4 direções (apenas ortogonais)
+            directions = [
+                [-1, 0],
+                [0, -1], [0, 1],
+                [1, 0]
+            ];
+        }
         
         for (const [dr, dc] of directions) {
             const newRow = row + dr;
@@ -938,18 +1092,37 @@ function findPath(start, goal, obstacles) {
     const startKey = posKey(start);
     const goalKey = posKey(goal);
     
+    // Log educacional: Iniciando algoritmo
+    if (educationalMode) {
+        addLogEntry('learning', `🎓 INICIANDO A*: De (${start[0]},${start[1]}) para (${goal[0]},${goal[1]})`);
+        addLogEntry('learning', `📚 Heurística inicial: ${heuristic(start, goal)} (distância Manhattan)`);
+    }
+    
     openSet.push({pos: start, f: heuristic(start, goal)});
     gScore.set(startKey, 0);
     fScore.set(startKey, heuristic(start, goal));
     
+    let iteration = 0;
+    
     while (openSet.length > 0) {
+        iteration++;
+        
         // Ordenar por f-score e pegar o melhor
         openSet.sort((a, b) => a.f - b.f);
         const current = openSet.shift();
         const currentKey = posKey(current.pos);
         
+        // Log educacional: Célula atual sendo examinada
+        if (educationalMode) {
+            addLogEntry('learning', `🔍 Iteração ${iteration}: Examinando (${current.pos[0]},${current.pos[1]}) - F=${current.f.toFixed(1)}`);
+        }
+        
         // Chegou no objetivo
         if (currentKey === goalKey) {
+            if (educationalMode) {
+                addLogEntry('learning', `🎯 SUCESSO! Destino alcançado em ${iteration} iterações`);
+            }
+            
             const path = [];
             let temp = current.pos;
             let tempKey = posKey(temp);
@@ -961,38 +1134,73 @@ function findPath(start, goal, obstacles) {
             }
             path.unshift(start);
             
+            if (educationalMode) {
+                addLogEntry('learning', `🛤️ Caminho encontrado com ${path.length} células (custo ${gScore.get(goalKey).toFixed(1)})`);
+            }
             return path;
         }
         
         closedSet.add(currentKey);
         
         // Examinar vizinhos
-        for (const neighbor of getNeighbors(current.pos)) {
+        const neighbors = getNeighbors(current.pos);
+        if (educationalMode) {
+            addLogEntry('learning', `👀 Analisando ${neighbors.length} vizinhos válidos...`);
+        }
+        
+        for (const neighbor of neighbors) {
             const neighborKey = posKey(neighbor);
             
             if (closedSet.has(neighborKey)) {
+                if (educationalMode) {
+                    addLogEntry('learning', `❌ (${neighbor[0]},${neighbor[1]}) já foi visitada - ignorando`);
+                }
                 continue;
             }
             
             // Calcular custo do movimento (diagonal = 1.4, ortogonal = 1.0)
             const moveCost = (Math.abs(neighbor[0] - current.pos[0]) + Math.abs(neighbor[1] - current.pos[1])) === 2 ? 1.4 : 1.0;
             const tentativeGScore = gScore.get(currentKey) + moveCost;
+            const heuristicValue = heuristic(neighbor, goal);
             
             if (!gScore.has(neighborKey) || tentativeGScore < gScore.get(neighborKey)) {
+                const isNewCell = !gScore.has(neighborKey);
+                const oldGScore = gScore.get(neighborKey) || Infinity;
+                
                 cameFrom.set(neighborKey, current.pos);
                 gScore.set(neighborKey, tentativeGScore);
-                const fScoreValue = tentativeGScore + heuristic(neighbor, goal);
+                const fScoreValue = tentativeGScore + heuristicValue;
                 fScore.set(neighborKey, fScoreValue);
+                
+                if (educationalMode) {
+                    if (isNewCell) {
+                        addLogEntry('learning', `✅ Nova célula (${neighbor[0]},${neighbor[1]}): G=${tentativeGScore.toFixed(1)} + H=${heuristicValue} = F=${fScoreValue.toFixed(1)}`);
+                    } else {
+                        addLogEntry('learning', `🔄 Caminho melhor para (${neighbor[0]},${neighbor[1]}): G=${oldGScore.toFixed(1)}→${tentativeGScore.toFixed(1)} (economia: ${(oldGScore - tentativeGScore).toFixed(1)})`);
+                    }
+                }
                 
                 // Adicionar à lista aberta se não estiver lá
                 if (!openSet.some(item => posKey(item.pos) === neighborKey)) {
                     openSet.push({pos: neighbor, f: fScoreValue});
                 }
+            } else {
+                if (educationalMode) {
+                    addLogEntry('learning', `⚠️ (${neighbor[0]},${neighbor[1]}) já tem caminho melhor (G atual: ${gScore.get(neighborKey).toFixed(1)} < tentativa: ${tentativeGScore.toFixed(1)})`);
+                }
             }
+        }
+        
+        // Log do estado atual das listas
+        if (educationalMode && iteration % 3 === 0) { // A cada 3 iterações para não poluir
+            addLogEntry('learning', `📊 Estado: ${openSet.length} células em aberto, ${closedSet.size} células fechadas`);
         }
     }
     
     // Não encontrou caminho
+    if (educationalMode) {
+        addLogEntry('learning', `🚫 FALHA: Nenhum caminho encontrado após ${iteration} iterações`);
+    }
     return [];
 }
 
@@ -1880,13 +2088,564 @@ function loadTheme() {
     }
 }
 
+// === CONFIGURAÇÕES AVANÇADAS ===
+
+function toggleAdvancedSettings() {
+    const content = document.getElementById('settings-content');
+    const toggle = document.getElementById('settings-toggle');
+    
+    if (content.classList.contains('collapsed')) {
+        content.classList.remove('collapsed');
+        toggle.textContent = '▼';
+        addLogEntry('system', '🔧 Configurações avançadas expandidas');
+    } else {
+        content.classList.add('collapsed');
+        toggle.textContent = '▶';
+        addLogEntry('system', '🔧 Configurações avançadas recolhidas');
+    }
+}
+
+function changeGridSize(newSize) {
+    const oldSize = GRID_SIZE;
+    GRID_SIZE = parseInt(newSize);
+    advancedConfig.gridSize = GRID_SIZE;
+    
+    // Parar caminhada se estiver ativa
+    if (isWalking) {
+        stopWalking();
+    }
+    
+    // RESET COMPLETO DAS POSIÇÕES - muito mais seguro
+    addLogEntry('system', `📐 Redimensionando grid de ${oldSize}x${oldSize} para ${GRID_SIZE}x${GRID_SIZE}`);
+    
+    // Posições fixas e seguras baseadas no novo tamanho
+    gameState.start = [0, 0]; // Sempre canto superior esquerdo
+    gameState.goal = [GRID_SIZE - 1, GRID_SIZE - 1]; // Sempre canto inferior direito
+    
+    // Limpar TUDO que pode causar problemas
+    gameState.obstacles = [];
+    gameState.dynamicObstacles = [];
+    gameState.currentPath = [];
+    gameState.visitedCells = [];
+    gameState.steppedCells = [];
+    gameState.detourCells = [];
+    gameState.customPath = [];
+    gameState.waypoints = [];
+    gameState.originalPath = [];
+    
+    // Resetar stats
+    gameState.stats = {
+        cellsProcessed: 0,
+        dynamicObstacles: 0,
+        replanningCount: 0,
+        pathLength: 0
+    };
+    
+    // Resetar variáveis de caminhada
+    currentWalkStep = 0;
+    finalApproach = false;
+    
+    // Adicionar alguns obstáculos simples baseados no tamanho do grid
+    const numObstacles = Math.floor(GRID_SIZE * 0.8); // 80% do tamanho
+    for (let i = 0; i < numObstacles; i++) {
+        const row = Math.floor(Math.random() * (GRID_SIZE - 2)) + 1; // Evitar bordas
+        const col = Math.floor(Math.random() * (GRID_SIZE - 2)) + 1;
+        
+        // Não colocar obstáculo no início ou fim
+        if ((row !== 0 || col !== 0) && (row !== GRID_SIZE-1 || col !== GRID_SIZE-1)) {
+            if (!gameState.obstacles.some(obs => obs[0] === row && obs[1] === col)) {
+                gameState.obstacles.push([row, col]);
+            }
+        }
+    }
+    
+    addLogEntry('system', `🎯 Posições resetadas: Início(0,0), Destino(${GRID_SIZE-1},${GRID_SIZE-1})`);
+    addLogEntry('system', `📊 Adicionados ${gameState.obstacles.length} obstáculos aleatórios`);
+    
+    // Ajustar tamanho das células no CSS dinamicamente
+    updateGridCellSize();
+    
+    // Recriar grid COMPLETAMENTE
+    createGrid();
+    
+    // Calcular caminho automaticamente no modo interativo
+    if (currentMode === 'interactive') {
+        setTimeout(() => {
+            calculateAndShowPath();
+        }, 100);
+    }
+    
+    const dims = getGridDimensions();
+    addLogEntry('success', `✅ Grid ${GRID_SIZE}x${GRID_SIZE} criado - Células: ${dims.cellSize}px, Personagem: ${dims.characterSize}px`);
+}
+
+function updateGridCellSize() {
+    const grid = document.getElementById('grid');
+    if (!grid) return;
+    
+    const dims = getGridDimensions();
+    
+    let fontSize;
+    switch(GRID_SIZE) {
+        case 8: fontSize = 14; break;
+        case 10: fontSize = 12; break;
+        default: fontSize = 12;
+    }
+    
+    console.log(`🔧 Atualizando grid ${GRID_SIZE}x${GRID_SIZE} com células ${dims.cellSize}px`);
+    
+    // 1. Atualizar grid CSS
+    grid.style.gridTemplateColumns = `repeat(${GRID_SIZE}, ${dims.cellSize}px)`;
+    grid.style.gap = dims.gap + 'px';
+    grid.style.width = 'fit-content';
+    grid.style.height = 'fit-content';
+    grid.style.transform = 'none';
+    grid.style.margin = '20px auto';
+    
+    // 2. Atualizar células
+    const cells = grid.querySelectorAll('.cell');
+    cells.forEach(cell => {
+        cell.style.width = dims.cellSize + 'px';
+        cell.style.height = dims.cellSize + 'px';
+        cell.style.fontSize = fontSize + 'px';
+    });
+    
+    // 3. Calcular se precisa de escala
+    const totalWidth = GRID_SIZE * dims.cellSize + (GRID_SIZE - 1) * dims.gap + 40;
+    const maxWidth = window.innerWidth * 0.6; // 60% da tela
+    
+    if (totalWidth > maxWidth) {
+        const scale = maxWidth / totalWidth;
+        grid.style.transform = `scale(${scale})`;
+        grid.style.transformOrigin = 'center';
+        addLogEntry('system', `📏 Grid reduzido para ${(scale * 100).toFixed(0)}%`);
+    } else {
+        addLogEntry('system', `📐 Grid ${GRID_SIZE}x${GRID_SIZE} em tamanho normal`);
+    }
+    
+    console.log(`✅ Grid: ${cells.length} células, total: ${totalWidth}px`);
+    
+    // 4. Reposicionar robô
+    if (character) {
+        repositionCharacter();
+    }
+}
+
+function repositionCharacter(scale = 1) {
+    if (!character) return;
+    
+    const dims = getGridDimensions();
+    
+    // Validar e corrigir posição inicial
+    if (gameState.start[0] >= GRID_SIZE || gameState.start[1] >= GRID_SIZE || 
+        gameState.start[0] < 0 || gameState.start[1] < 0) {
+        gameState.start = [0, 0];
+        addLogEntry('system', '🎯 Posição inicial corrigida para (0,0)');
+    }
+    
+    // Usar posição inicial como base
+    let currentRow = gameState.start[0];
+    let currentCol = gameState.start[1];
+    
+    // Se estiver caminhando, usar posição do caminho
+    if (isWalking && gameState.currentPath && currentWalkStep > 0) {
+        const currentPos = gameState.currentPath[Math.min(currentWalkStep - 1, gameState.currentPath.length - 1)];
+        if (currentPos && currentPos[0] < GRID_SIZE && currentPos[1] < GRID_SIZE) {
+            currentRow = currentPos[0];
+            currentCol = currentPos[1];
+        }
+    }
+    
+    // Calcular posição baseada na célula real do DOM
+    const targetCell = document.getElementById(`cell-${currentRow}-${currentCol}`);
+    if (!targetCell) {
+        console.error(`Célula (${currentRow},${currentCol}) não encontrada!`);
+        return;
+    }
+    
+    const targetCellRect = targetCell.getBoundingClientRect();
+    const gridRect = targetCell.parentElement.getBoundingClientRect();
+    
+    // Posição relativa à grid container
+    const cellLeft = targetCellRect.left - gridRect.left;
+    const cellTop = targetCellRect.top - gridRect.top;
+    
+    // Centralizar o robô na célula usando as dimensões reais
+    const left = cellLeft + (targetCellRect.width / 2) - (dims.characterSize / 2);
+    const top = cellTop + (targetCellRect.height / 2) - (dims.characterSize / 2);
+    
+    // Aplicar posição
+    character.style.left = left + 'px';
+    character.style.top = top + 'px';
+    character.style.width = dims.characterSize + 'px';
+    character.style.height = dims.characterSize + 'px';
+    
+    console.log(`🤖 Robô posicionado em (${currentRow},${currentCol}) -> ${left}px, ${top}px`);
+}
+
+function changeMovementType(type) {
+    advancedConfig.movementType = parseInt(type);
+    const typeName = type === '8' ? '8-Direções (Diagonal)' : '4-Direções (Ortogonal)';
+    
+    addLogEntry('system', `🧭 Tipo de movimento alterado para: ${typeName}`);
+    
+    // Recalcular caminho se não estiver caminhando
+    if (!isWalking && currentMode === 'interactive') {
+        calculateAndShowPath();
+    }
+}
+
+function changeObstacleSpeed(speed) {
+    advancedConfig.obstacleSpeed = parseInt(speed);
+    updateObstacleSpeedDisplay(speed);
+    
+    // Reiniciar obstáculos móveis com nova velocidade
+    if (movingObstaclesInterval && currentMode === 'interactive') {
+        stopMovingObstacles();
+        setTimeout(() => {
+            startMovingObstacles();
+        }, 500);
+    }
+    
+    addLogEntry('system', `🐛 Velocidade dos Pokémon alterada para ${(speed/1000).toFixed(1)}s`);
+}
+
+function updateObstacleSpeedDisplay(speed) {
+    const display = document.getElementById('obstacle-speed-display');
+    if (display) {
+        display.textContent = (speed / 1000).toFixed(1) + 's';
+    }
+}
+
+function changeSpawnFrequency(frequency) {
+    advancedConfig.spawnFrequency = parseInt(frequency);
+    updateSpawnFrequencyDisplay(frequency);
+    
+    // Parar spawn anterior
+    if (spawnInterval) {
+        clearInterval(spawnInterval);
+        spawnInterval = null;
+    }
+    
+    // Iniciar novo spawn se não for 0
+    if (frequency > 0 && currentMode === 'interactive') {
+        startAutoSpawn();
+        addLogEntry('system', `⏰ Auto-spawn ativado: novo Pokémon a cada ${(frequency/1000).toFixed(1)}s`);
+    } else {
+        addLogEntry('system', '⏰ Auto-spawn desabilitado');
+    }
+}
+
+function updateSpawnFrequencyDisplay(frequency) {
+    const display = document.getElementById('spawn-frequency-display');
+    if (display) {
+        if (frequency === 0) {
+            display.textContent = 'Desabilitado';
+        } else {
+            display.textContent = `${(frequency / 1000).toFixed(1)}s`;
+        }
+    }
+}
+
+function startAutoSpawn() {
+    if (spawnInterval || advancedConfig.spawnFrequency === 0) return;
+    
+    spawnInterval = setInterval(() => {
+        if (currentMode === 'interactive' && !isWalking) {
+            // Só spawnar se não estiver caminhando para não atrapalhar
+            addRandomPokemon();
+        }
+    }, advancedConfig.spawnFrequency);
+}
+
+function stopAutoSpawn() {
+    if (spawnInterval) {
+        clearInterval(spawnInterval);
+        spawnInterval = null;
+    }
+}
+
+function changeReplanLimit(limit) {
+    advancedConfig.replanLimit = parseInt(limit);
+    let limitText;
+    
+    switch(limit) {
+        case '3': limitText = '3 recálculos (Rápido)'; break;
+        case '5': limitText = '5 recálculos (Padrão)'; break;
+        case '10': limitText = '10 recálculos (Persistente)'; break;
+        case '-1': limitText = 'Ilimitado (Teimoso)'; break;
+        default: limitText = limit + ' recálculos';
+    }
+    
+    addLogEntry('system', `⚡ Limite de recálculos: ${limitText}`);
+}
+
+function toggleCoordinates(show) {
+    advancedConfig.showCoordinates = show;
+    
+    const coords = document.querySelectorAll('.coords');
+    if (coords.length > 0) {
+        coords.forEach(coord => {
+            coord.style.display = show ? 'block' : 'none';
+        });
+        addLogEntry('system', show ? '👁️ Coordenadas exibidas' : '👁️ Coordenadas ocultas');
+    }
+}
+
+function toggleOriginalPathHighlight(highlight) {
+    advancedConfig.highlightOriginal = highlight;
+    
+    if (highlight && gameState.originalPath.length > 0) {
+        addLogEntry('system', '🎯 Caminho original destacado em amarelo');
+        // Adicionar classe especial para caminho original
+        gameState.originalPath.forEach(pos => {
+            const cell = document.getElementById(`cell-${pos[0]}-${pos[1]}`);
+            if (cell) {
+                cell.classList.add('original-path-highlight');
+            }
+        });
+    } else {
+        addLogEntry('system', '🎯 Destaque do caminho original removido');
+        // Remover classe especial
+        document.querySelectorAll('.original-path-highlight').forEach(cell => {
+            cell.classList.remove('original-path-highlight');
+        });
+    }
+}
+
+function resetToDefaults() {
+    // Valores padrão
+    const defaults = {
+        gridSize: 10,
+        movementType: 8,
+        obstacleSpeed: 3000,
+        spawnFrequency: 0,
+        replanLimit: 5,
+        showCoordinates: true,
+        highlightOriginal: false
+    };
+    
+    // Aplicar valores padrão
+    document.getElementById('grid-size-select').value = defaults.gridSize;
+    document.getElementById('movement-type-select').value = defaults.movementType;
+    document.getElementById('obstacle-speed-slider').value = defaults.obstacleSpeed;
+    document.getElementById('spawn-frequency-slider').value = defaults.spawnFrequency;
+    document.getElementById('replan-limit-select').value = defaults.replanLimit;
+    document.getElementById('show-coordinates').checked = defaults.showCoordinates;
+    document.getElementById('highlight-original').checked = defaults.highlightOriginal;
+    
+    // Aplicar configurações
+    Object.assign(advancedConfig, defaults);
+    
+    // Aplicar mudanças
+    if (GRID_SIZE !== defaults.gridSize) {
+        changeGridSize(defaults.gridSize);
+    }
+    changeMovementType(defaults.movementType);
+    updateObstacleSpeedDisplay(defaults.obstacleSpeed);
+    updateSpawnFrequencyDisplay(defaults.spawnFrequency);
+    toggleCoordinates(defaults.showCoordinates);
+    toggleOriginalPathHighlight(defaults.highlightOriginal);
+    
+    addLogEntry('success', '🔄 Configurações restauradas para os valores padrão');
+}
+
+function forceResetGrid() {
+    // Forçar reset do grid para 10x10
+    if (isWalking) {
+        stopWalking();
+    }
+    
+    // Resetar tamanho
+    GRID_SIZE = 10;
+    advancedConfig.gridSize = 10;
+    document.getElementById('grid-size-select').value = 10;
+    
+    // Resetar posições
+    gameState.start = [0, 0];
+    gameState.goal = [9, 9];
+    gameState.obstacles = [[2,2], [2,3], [3,3], [5,5], [5,6], [6,5], [7,8]];
+    gameState.dynamicObstacles = [];
+    gameState.currentPath = [];
+    gameState.visitedCells = [];
+    gameState.steppedCells = [];
+    gameState.detourCells = [];
+    gameState.customPath = [];
+    gameState.waypoints = [];
+    
+    // Limpar stats
+    gameState.stats = {
+        cellsProcessed: 0,
+        dynamicObstacles: 0,
+        replanningCount: 0,
+        pathLength: 0
+    };
+    
+    addLogEntry('system', '⚡ RESET FORÇADO - Grid resetado para 10x10');
+    addLogEntry('system', '🎯 Posições resetadas: Início(0,0), Destino(9,9)');
+    
+    // Recriar grid
+    createGrid();
+    
+    addLogEntry('success', '✅ Grid resetado com sucesso!');
+}
+
+function forceCreateRobot() {
+    addLogEntry('system', '🤖 Forçando recriação do robô...');
+    
+    // Garantir posição válida
+    if (gameState.start[0] >= GRID_SIZE || gameState.start[1] >= GRID_SIZE || 
+        gameState.start[0] < 0 || gameState.start[1] < 0) {
+        gameState.start = [0, 0];
+        addLogEntry('system', '🎯 Posição inicial corrigida para (0,0)');
+    }
+    
+    // Remover qualquer robô existente
+    const existingRobot = document.getElementById('walking-character');
+    if (existingRobot) {
+        existingRobot.remove();
+        addLogEntry('system', '🗑️ Robô antigo removido');
+    }
+    
+    // Resetar variável
+    character = null;
+    
+    // Criar novo robô
+    createCharacter();
+    
+    // Recalcular caminho se necessário
+    if (currentMode === 'interactive') {
+        setTimeout(() => {
+            calculateAndShowPath();
+        }, 100);
+    }
+    
+    addLogEntry('success', '✅ Robô recriado com sucesso!');
+}
+
+function saveSettings() {
+    try {
+        localStorage.setItem('astarAdvancedConfig', JSON.stringify(advancedConfig));
+        addLogEntry('success', '💾 Configurações salvas com sucesso!');
+    } catch (error) {
+        addLogEntry('error', '❌ Erro ao salvar configurações: ' + error.message);
+    }
+}
+
+function loadSettings() {
+    try {
+        const saved = localStorage.getItem('astarAdvancedConfig');
+        if (saved) {
+            const config = JSON.parse(saved);
+            
+            // Aplicar configurações salvas aos controles
+            document.getElementById('grid-size-select').value = config.gridSize || 10;
+            document.getElementById('movement-type-select').value = config.movementType || 8;
+            document.getElementById('obstacle-speed-slider').value = config.obstacleSpeed || 3000;
+            document.getElementById('spawn-frequency-slider').value = config.spawnFrequency || 0;
+            document.getElementById('replan-limit-select').value = config.replanLimit || 5;
+            document.getElementById('show-coordinates').checked = config.showCoordinates !== false;
+            document.getElementById('highlight-original').checked = config.highlightOriginal || false;
+            
+            // Aplicar configurações
+            Object.assign(advancedConfig, config);
+            
+            // Aplicar mudanças visuais (apenas se o grid for diferente)
+            if (GRID_SIZE !== config.gridSize && document.getElementById('grid')) {
+                changeGridSize(config.gridSize);
+            } else if (config.gridSize) {
+                // Só atualizar a variável se o elemento não existir ainda
+                GRID_SIZE = config.gridSize;
+                advancedConfig.gridSize = config.gridSize;
+            }
+            updateObstacleSpeedDisplay(config.obstacleSpeed || 3000);
+            updateSpawnFrequencyDisplay(config.spawnFrequency || 0);
+            toggleCoordinates(config.showCoordinates !== false);
+            toggleOriginalPathHighlight(config.highlightOriginal || false);
+            
+            addLogEntry('success', '📁 Configurações carregadas com sucesso!');
+        } else {
+            addLogEntry('system', '📁 Nenhuma configuração salva encontrada');
+        }
+    } catch (error) {
+        addLogEntry('error', '❌ Erro ao carregar configurações: ' + error.message);
+    }
+}
+
 // Inicialização
 window.addEventListener('load', function() {
-    loadTheme(); // Carregar tema salvo
-    createGrid(demoSteps[0]);
+    console.log('🔄 Iniciando sistema A*...');
     
-    // Adicionar eventos globais do mouse para desenho
-    document.addEventListener('mouseup', () => {
-        isMouseDown = false;
-    });
+    try {
+        console.log('📋 Carregando tema...');
+        loadTheme(); // Carregar tema salvo
+        
+        console.log('🎮 Criando grid inicial...');
+        createGrid(demoSteps[0]);
+        
+        // Log inicial sobre modo educacional
+        setTimeout(() => {
+            addLogEntry('system', '🎓 Sistema de Log Duplo ativo - Sistema | Educacional');
+            addLogEntry('learning', '🎓 Log Educacional ativo - O A* explicará suas decisões aqui!');
+            addLogEntry('learning', '💡 Use o botão "🎓 ON/OFF" no cabeçalho para controlar este log');
+        }, 300);
+        
+        console.log('⚙️ Carregando configurações...');
+        // Carregar configurações de forma segura
+        setTimeout(() => {
+            try {
+                loadSettings();
+            } catch (settingsError) {
+                console.warn('Erro ao carregar configurações:', settingsError);
+            }
+        }, 100);
+        
+        console.log('🎛️ Inicializando displays...');
+        // Inicializar displays com timeout para garantir que elementos existam
+        setTimeout(() => {
+            updateObstacleSpeedDisplay(advancedConfig.obstacleSpeed);
+            updateSpawnFrequencyDisplay(advancedConfig.spawnFrequency);
+        }, 200);
+        
+        console.log('🖱️ Configurando eventos...');
+        // Adicionar eventos globais do mouse para desenho
+        document.addEventListener('mouseup', () => {
+            isMouseDown = false;
+        });
+        
+        // Adicionar evento de clique no header das configurações
+        setTimeout(() => {
+            const settingsHeader = document.querySelector('.settings-header');
+            if (settingsHeader) {
+                settingsHeader.addEventListener('click', toggleAdvancedSettings);
+                console.log('✅ Eventos das configurações configurados');
+            } else {
+                console.warn('⚠️ Header das configurações não encontrado');
+            }
+        }, 100);
+        
+        // Adicionar evento de redimensionamento da janela
+        window.addEventListener('resize', () => {
+            console.log('🔄 Janela redimensionada, recalculando grid...');
+            setTimeout(() => {
+                updateGridCellSize();
+            }, 100);
+        });
+        
+        addLogEntry('success', '🚀 Sistema inicializado com sucesso!');
+        console.log('✅ Inicialização completa!');
+        
+    } catch (error) {
+        console.error('❌ Erro na inicialização:', error);
+        
+        // Tentar criar grid básico mesmo com erro
+        try {
+            console.log('🔧 Tentando criar grid de emergência...');
+            createGrid(demoSteps[0]);
+            console.log('✅ Grid de emergência criado');
+        } catch (gridError) {
+            console.error('💥 Erro crítico ao criar grid:', gridError);
+            alert('Erro crítico: Não foi possível inicializar o simulador. Verifique o console para mais detalhes.');
+        }
+    }
 });
