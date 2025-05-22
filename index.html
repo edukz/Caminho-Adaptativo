@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>A* Adaptativo - Simulador Interativo</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎮 A* Adaptativo - Simulador Interativo</h1>
+            <p>Demonstração visual do algoritmo de pathfinding mais inteligente</p>
+        </div>
+        
+        <div class="main-content">
+            <div class="simulation-area">
+                <div class="interactive-hint">
+                    💡 <strong>Modo Interativo:</strong> Clique nas células para adicionar/remover obstáculos e veja o algoritmo se adaptar em tempo real!
+                </div>
+                
+                <div id="current-step-info" class="step-info"></div>
+                <div class="grid" id="grid"></div>
+                
+                <div class="comparison" id="comparison" style="display: none;">
+                    <h4>⚡ Comparação de Performance</h4>
+                    <div class="vs-item">
+                        <span>A* Tradicional:</span>
+                        <span id="traditional-cost">--</span>
+                    </div>
+                    <div class="vs-item">
+                        <span>A* Adaptativo:</span>
+                        <span id="adaptive-cost">--</span>
+                    </div>
+                    <div class="vs-item" style="font-weight: bold; color: #4CAF50;">
+                        <span>Economia:</span>
+                        <span id="savings">--</span>
+                    </div>
+                </div>
+
+                <!-- Sistema de Log -->
+                <div class="log-system">
+                    <div class="log-header">
+                        <h4>📋 Log do Sistema</h4>
+                        <div class="log-controls">
+                            <button onclick="clearLog()" class="log-btn">🗑️ Limpar</button>
+                            <button onclick="toggleAutoScroll()" class="log-btn" id="auto-scroll-btn">📜 Auto-scroll: ON</button>
+                        </div>
+                    </div>
+                    <div class="log-container" id="log-container">
+                        <div class="log-entry system">
+                            <span class="log-time">00:00:00</span>
+                            <span class="log-message">Sistema iniciado - Pronto para navegação!</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="controls-panel">
+                <div class="controls-section">
+                    <h3>🎛️ Controles</h3>
+                    <div class="mode-selector">
+                        <button class="mode-btn active" onclick="setMode('demo')" id="demo-btn">Demo</button>
+                        <button class="mode-btn" onclick="setMode('interactive')" id="interactive-btn">Interativo</button>
+                        <button class="mode-btn" onclick="setMode('custom')" id="custom-btn">🎨 Desenhar</button>
+                    </div>
+                    
+                    
+                    <!-- Controles principais (Demo e Interativo) -->
+                    <div class="button-group" id="main-controls">
+                        <button onclick="startWalking()" id="walk-btn" class="success">🚶 Iniciar Caminhada</button>
+                        <button onclick="nextStep()" id="next-btn">➡️ Próximo Passo</button>
+                        <button onclick="resetDemo()" class="danger">🔄 Resetar</button>
+                        <button onclick="autoPlay()" id="auto-btn">⏯️ Auto Play</button>
+                    </div>
+                    
+                    <!-- Controle de velocidade (Demo e Interativo) -->
+                    <div class="speed-control" id="speed-controls">
+                        <label>⚡ Velocidade: <span id="speed-display">2.0s</span></label>
+                        <input type="range" class="speed-slider" min="500" max="5000" value="2000" step="500" 
+                               onchange="updateSpeed(this.value)" oninput="updateSpeed(this.value)">
+                    </div>
+                    
+                    <!-- Controles de desenho (apenas modo Desenhar) -->
+                    <div class="button-group" id="drawing-controls">
+                        <button onclick="togglePathDrawing()" id="draw-toggle-btn" class="success">✏️ Iniciar Desenho</button>
+                        <button onclick="addWaypoint()" style="background: linear-gradient(45deg, #9C27B0, #7B1FA2);">⭐ Modo Waypoint</button>
+                        <button onclick="addRandomPokemon()" style="background: linear-gradient(45deg, #9C27B0, #7B1FA2);">🐛 Pokémon Aleatório</button>
+                        <button onclick="addRandomObstacle()" class="danger">🎲 Obstáculo Aleatório</button>
+                        <button onclick="clearFootprints()" style="background: linear-gradient(45deg, #9C27B0, #7B1FA2);">👣 Limpar Pegadas</button>
+                        <button onclick="clearCustomPath()" class="danger">🗑️ Apagar Desenho</button>
+                        <button onclick="followCustomPath()" style="background: linear-gradient(45deg, #FF9800, #F57C00);">🚀 Seguir Meu Caminho</button>
+                    </div>
+                    
+                </div>
+                
+                <div class="controls-section">
+                    <h3>📊 Estatísticas</h3>
+                    <div class="stats">
+                        <div class="stat-item">
+                            <span>Células Processadas:</span>
+                            <span id="cells-processed">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span>Obstáculos Dinâmicos:</span>
+                            <span id="dynamic-obstacles">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span>Replanejamentos:</span>
+                            <span id="replanning-count">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span>Comprimento do Caminho:</span>
+                            <span id="path-length">0</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="controls-section">
+                    <h3>🏷️ Legenda</h3>
+                    <div class="legend">
+                        <div class="legend-item">
+                            <div class="legend-cell start"></div>
+                            <span>Início (S)</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-cell goal"></div>
+                            <span>Destino (G)</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-cell obstacle"></div>
+                            <span>Obstáculo (#)</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-cell path"></div>
+                            <span>Caminho Atual</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-cell dynamic-obstacle"></div>
+                            <span>Pokémon (P)</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-cell custom-path"></div>
+                            <span>Caminho Desenhado (✏️)</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-cell waypoint"></div>
+                            <span>Waypoint (⭐)</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-cell stepped"></div>
+                            <span>Pisou Aqui (👣)</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-cell visited"></div>
+                            <span>Caminho Percorrido (•)</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-cell detour"></div>
+                            <span>Desvio de Obstáculo (↗)</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-cell new-path"></div>
+                            <span>Novo Caminho</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-cell explored"></div>
+                            <span>Explorado</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-cell frontier"></div>
+                            <span>Fronteira</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
