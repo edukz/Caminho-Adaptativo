@@ -12,6 +12,8 @@ let autoScroll = true;
 let startTime = Date.now();
 let isDrawingPath = false;
 let isMouseDown = false;
+let movingObstaclesInterval = null;
+let finalApproach = false;
 let gameState = {
     start: [0, 0],
     goal: [9, 9],
@@ -25,6 +27,7 @@ let gameState = {
     detourCells: [], // Células visitadas durante desvios
     originalPath: [], // Caminho original antes dos desvios
     isOnDetour: false, // Flag para indicar se está desviando
+    movingObstacles: [], // Obstáculos que se movem
     stats: {
         cellsProcessed: 0,
         dynamicObstacles: 0,
@@ -74,34 +77,57 @@ const demoSteps = [
 ];
 
 function setMode(mode) {
-    currentMode = mode;
-    document.querySelectorAll('.mode-btn').forEach(btn => btn.classList.remove('active'));
-    document.getElementById(mode + '-btn').classList.add('active');
+    // Animação de transição suave
+    const container = document.querySelector('.simulation-area');
+    container.style.opacity = '0.5';
+    container.style.transform = 'scale(0.95)';
     
-    // Controlar visibilidade dos controles baseado no modo
-    const mainControls = document.getElementById('main-controls');
-    const speedControls = document.getElementById('speed-controls');
-    const drawingControls = document.getElementById('drawing-controls');
-    
-    if (mode === 'custom') {
-        // Modo Desenhar: apenas controles de desenho
-        mainControls.style.display = 'none';
-        speedControls.style.display = 'none';
-        drawingControls.style.display = 'flex';
-        enablePathDrawing();
-    } else {
-        // Modos Demo e Interativo: controles principais + velocidade
-        mainControls.style.display = 'flex';
-        speedControls.style.display = 'block';
-        drawingControls.style.display = 'none';
-        disablePathDrawing();
+    setTimeout(() => {
+        currentMode = mode;
+        document.querySelectorAll('.mode-btn').forEach(btn => {
+            btn.classList.remove('active');
+            btn.style.transform = 'scale(1)';
+        });
+        document.getElementById(mode + '-btn').classList.add('active');
+        document.getElementById(mode + '-btn').style.transform = 'scale(1.05)';
         
-        if (mode === 'interactive') {
-            calculateAndShowPath();
+        // Controlar visibilidade dos controles baseado no modo
+        const mainControls = document.getElementById('main-controls');
+        const speedControls = document.getElementById('speed-controls');
+        const drawingControls = document.getElementById('drawing-controls');
+        
+        // Parar obstáculos móveis se estiverem ativos
+        stopMovingObstacles();
+        
+        if (mode === 'custom') {
+            // Modo Desenhar: apenas controles de desenho
+            mainControls.style.display = 'none';
+            speedControls.style.display = 'none';
+            drawingControls.style.display = 'flex';
+            enablePathDrawing();
         } else {
-            resetDemo();
+            // Modos Demo e Interativo: controles principais + velocidade
+            mainControls.style.display = 'flex';
+            speedControls.style.display = 'block';
+            drawingControls.style.display = 'none';
+            disablePathDrawing();
+            
+            if (mode === 'interactive') {
+                calculateAndShowPath();
+                startMovingObstacles(); // Iniciar obstáculos móveis
+            } else {
+                resetDemo();
+            }
         }
-    }
+        
+        // Restaurar animação
+        container.style.opacity = '1';
+        container.style.transform = 'scale(1)';
+        
+        setTimeout(() => {
+            document.getElementById(mode + '-btn').style.transform = 'scale(1)';
+        }, 200);
+    }, 150);
 }
 
 function updateSpeed(value) {
@@ -340,6 +366,14 @@ function moveCharacterToCell(row, col, callback = null) {
         gameState.steppedCells.push([row, col]);
         addLogEntry('movement', `👣 Pisou em <span class="log-coordinates">(${row},${col})</span>`);
         
+        // Verificar se é um desvio (não estava no caminho original)
+        if (gameState.originalPath.length > 0 && 
+            !gameState.originalPath.some(p => p[0] === row && p[1] === col) &&
+            !gameState.customPath.some(p => p[0] === row && p[1] === col)) {
+            gameState.detourCells.push([row, col]);
+            addLogEntry('detour', `🔄 Desvio detectado em <span class="log-coordinates">(${row},${col})</span>!`);
+        }
+        
         // Atualizar visual imediatamente
         updateGridVisually();
     }
@@ -405,6 +439,11 @@ function startWalking() {
     }
     
     isWalking = true;
+    finalApproach = false;
+    
+    // Salvar o caminho original para detectar desvios
+    gameState.originalPath = [...path];
+    
     // Se já estamos na posição inicial, começar do próximo passo
     currentWalkStep = (path[0][0] === gameState.start[0] && path[0][1] === gameState.start[1]) ? 1 : 0;
     document.getElementById('walk-btn').textContent = '⏹️ Parar';
@@ -572,6 +611,14 @@ function walkNextStep() {
             addLogEntry('success', `🎉 Reconectou ao caminho original! Voltando à rota desenhada pelo usuário`);
         }
         
+        // Efeito de brilho quando está chegando ao final
+        const distanceToGoal = Math.abs(nextPos[0] - gameState.goal[0]) + Math.abs(nextPos[1] - gameState.goal[1]);
+        if (distanceToGoal <= 3 && !finalApproach) {
+            finalApproach = true;
+            addLogEntry('success', '✨ Aproximação final! Adicionando efeito de brilho...');
+            addFinalApproachGlow();
+        }
+        
         if (isWalking) {
             walkingInterval = setTimeout(walkNextStep, walkingSpeed);
         }
@@ -584,12 +631,113 @@ function stopWalking() {
     }
     
     isWalking = false;
+    finalApproach = false;
     if (walkingInterval) {
         clearTimeout(walkingInterval);
         walkingInterval = null;
     }
     document.getElementById('walk-btn').textContent = '🚶 Iniciar Caminhada';
+    removeFinalApproachGlow();
 }
+
+// === SISTEMA DE OBSTÁCULOS MÓVEIS ===
+function startMovingObstacles() {
+    if (movingObstaclesInterval) return;
+    
+    // Criar alguns obstáculos móveis
+    gameState.movingObstacles = [
+        { pos: [3, 4], direction: [1, 0], speed: 3000 },
+        { pos: [6, 6], direction: [0, 1], speed: 2500 },
+        { pos: [8, 2], direction: [-1, 0], speed: 3500 }
+    ];
+    
+    addLogEntry('system', '🔄 Obstáculos móveis ativados!');
+    
+    movingObstaclesInterval = setInterval(() => {
+        moveObstacles();
+    }, 2000);
+}
+
+function stopMovingObstacles() {
+    if (movingObstaclesInterval) {
+        clearInterval(movingObstaclesInterval);
+        movingObstaclesInterval = null;
+    }
+    gameState.movingObstacles = [];
+}
+
+function moveObstacles() {
+    if (currentMode !== 'interactive' || gameState.movingObstacles.length === 0) return;
+    
+    gameState.movingObstacles.forEach((obstacle, index) => {
+        const [row, col] = obstacle.pos;
+        const [dr, dc] = obstacle.direction;
+        
+        // Calcular nova posição
+        let newRow = row + dr;
+        let newCol = col + dc;
+        
+        // Verificar limites e mudar direção se necessário
+        if (newRow < 0 || newRow >= GRID_SIZE || newCol < 0 || newCol >= GRID_SIZE ||
+            gameState.obstacles.some(obs => obs[0] === newRow && obs[1] === newCol)) {
+            // Mudar direção aleatoriamente
+            const directions = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+            obstacle.direction = directions[Math.floor(Math.random() * directions.length)];
+            newRow = row + obstacle.direction[0];
+            newCol = col + obstacle.direction[1];
+            
+            // Se ainda inválido, ficar parado
+            if (newRow < 0 || newRow >= GRID_SIZE || newCol < 0 || newCol >= GRID_SIZE ||
+                gameState.obstacles.some(obs => obs[0] === newRow && obs[1] === newCol)) {
+                return;
+            }
+        }
+        
+        // Remover obstáculo da posição antiga
+        gameState.dynamicObstacles = gameState.dynamicObstacles.filter(obs => 
+            !(obs[0] === row && obs[1] === col));
+        
+        // Adicionar na nova posição
+        obstacle.pos = [newRow, newCol];
+        if (!gameState.dynamicObstacles.some(obs => obs[0] === newRow && obs[1] === newCol)) {
+            gameState.dynamicObstacles.push([newRow, newCol]);
+        }
+        
+        addLogEntry('obstacle', `🔄 Pokémon se moveu de (${row},${col}) para (${newRow},${newCol})`);
+    });
+    
+    // Atualizar visual
+    updateGridVisually();
+}
+
+// === EFEITOS DE BRILHO FINAL ===
+function addFinalApproachGlow() {
+    const goalCell = document.getElementById(`cell-${gameState.goal[0]}-${gameState.goal[1]}`);
+    if (goalCell) {
+        goalCell.classList.add('final-glow');
+        
+        // Adicionar efeito de brilho nas células próximas ao destino
+        for (let dr = -2; dr <= 2; dr++) {
+            for (let dc = -2; dc <= 2; dc++) {
+                const r = gameState.goal[0] + dr;
+                const c = gameState.goal[1] + dc;
+                if (r >= 0 && r < GRID_SIZE && c >= 0 && c < GRID_SIZE) {
+                    const cell = document.getElementById(`cell-${r}-${c}`);
+                    if (cell && Math.abs(dr) + Math.abs(dc) <= 2) {
+                        cell.classList.add('approach-glow');
+                    }
+                }
+            }
+        }
+    }
+}
+
+function removeFinalApproachGlow() {
+    document.querySelectorAll('.final-glow, .approach-glow').forEach(cell => {
+        cell.classList.remove('final-glow', 'approach-glow');
+    });
+}
+
 
 // Sistema de Log
 function addLogEntry(type, message) {
@@ -617,23 +765,69 @@ function addLogEntry(type, message) {
         logContainer.scrollTop = logContainer.scrollHeight;
     }
     
-    // Limitar número de entradas (manter últimas 100)
+    // Limitar número de entradas (manter últimas 1000)
     const entries = logContainer.querySelectorAll('.log-entry');
-    if (entries.length > 100) {
-        entries[0].remove();
+    if (entries.length > 1000) {
+        // Remove as 100 entradas mais antigas de uma vez para melhor performance
+        for (let i = 0; i < 100; i++) {
+            if (entries[i]) {
+                entries[i].remove();
+            }
+        }
     }
 }
 
 function clearLog() {
     const logContainer = document.getElementById('log-container');
+    const entriesCount = logContainer.querySelectorAll('.log-entry').length;
     logContainer.innerHTML = '';
-    addLogEntry('system', 'Log limpo - Sistema reiniciado');
+    addLogEntry('system', `🗑️ Log limpo - ${entriesCount} entradas removidas. Sistema reiniciado.`);
 }
 
 function toggleAutoScroll() {
     autoScroll = !autoScroll;
     const btn = document.getElementById('auto-scroll-btn');
     btn.textContent = `📜 Auto-scroll: ${autoScroll ? 'ON' : 'OFF'}`;
+}
+
+function showLogStats() {
+    const logContainer = document.getElementById('log-container');
+    const entries = logContainer.querySelectorAll('.log-entry');
+    
+    // Contar entradas por tipo
+    const stats = {
+        system: 0,
+        movement: 0,
+        obstacle: 0,
+        pathfinding: 0,
+        success: 0,
+        error: 0,
+        detour: 0,
+        total: entries.length
+    };
+    
+    entries.forEach(entry => {
+        if (entry.classList.contains('system')) stats.system++;
+        else if (entry.classList.contains('movement')) stats.movement++;
+        else if (entry.classList.contains('obstacle')) stats.obstacle++;
+        else if (entry.classList.contains('pathfinding')) stats.pathfinding++;
+        else if (entry.classList.contains('success')) stats.success++;
+        else if (entry.classList.contains('error')) stats.error++;
+        else if (entry.classList.contains('detour')) stats.detour++;
+    });
+    
+    const percentage = ((stats.total / 1000) * 100).toFixed(1);
+    
+    addLogEntry('system', `📊 ESTATÍSTICAS DO LOG:`);
+    addLogEntry('system', `   📝 Total de entradas: ${stats.total}/1000 (${percentage}%)`);
+    addLogEntry('system', `   ⚙️ Sistema: ${stats.system} | 🚶 Movimento: ${stats.movement}`);
+    addLogEntry('system', `   🧠 Pathfinding: ${stats.pathfinding} | 🎯 Sucesso: ${stats.success}`);
+    addLogEntry('system', `   ⚠️ Obstáculos: ${stats.obstacle} | ❌ Erros: ${stats.error}`);
+    addLogEntry('system', `   🔄 Desvios: ${stats.detour}`);
+    
+    if (stats.total > 800) {
+        addLogEntry('system', `⚠️ Log quase cheio! ${1000 - stats.total} entradas restantes.`);
+    }
 }
 
 function handleCellClick(row, col) {
@@ -1236,8 +1430,459 @@ function autoPlay() {
     }, playbackSpeed);
 }
 
+// === GERADOR DE CENÁRIOS ALEATÓRIOS ===
+function generateRandomScenario(difficulty) {
+    // Parar caminhada se estiver ativa
+    if (isWalking) {
+        stopWalking();
+    }
+    
+    // Limpar cenário atual
+    clearCurrentScenario();
+    
+    let obstacleCount, pokemonCount, description;
+    
+    switch(difficulty) {
+        case 'easy':
+            obstacleCount = Math.floor(Math.random() * 8) + 5; // 5-12 obstáculos
+            pokemonCount = Math.floor(Math.random() * 3) + 1; // 1-3 pokémon
+            description = 'Cenário Fácil - Poucos obstáculos, caminho direto possível';
+            break;
+        case 'medium':
+            obstacleCount = Math.floor(Math.random() * 12) + 10; // 10-21 obstáculos
+            pokemonCount = Math.floor(Math.random() * 4) + 2; // 2-5 pokémon
+            description = 'Cenário Médio - Obstáculos moderados, alguns desvios necessários';
+            break;
+        case 'hard':
+            obstacleCount = Math.floor(Math.random() * 15) + 20; // 20-34 obstáculos
+            pokemonCount = Math.floor(Math.random() * 6) + 3; // 3-8 pokémon
+            description = 'Cenário Difícil - Muitos obstáculos, navegação complexa';
+            break;
+    }
+    
+    // Gerar obstáculos estáticos
+    const attempts = obstacleCount * 3; // Múltiplas tentativas para evitar loops infinitos
+    let placedObstacles = 0;
+    
+    for (let i = 0; i < attempts && placedObstacles < obstacleCount; i++) {
+        const row = Math.floor(Math.random() * GRID_SIZE);
+        const col = Math.floor(Math.random() * GRID_SIZE);
+        
+        if (isValidObstaclePosition(row, col)) {
+            gameState.obstacles.push([row, col]);
+            placedObstacles++;
+        }
+    }
+    
+    // Gerar pokémon (obstáculos dinâmicos)
+    let placedPokemon = 0;
+    for (let i = 0; i < attempts && placedPokemon < pokemonCount; i++) {
+        const row = Math.floor(Math.random() * GRID_SIZE);
+        const col = Math.floor(Math.random() * GRID_SIZE);
+        
+        if (isValidObstaclePosition(row, col)) {
+            gameState.dynamicObstacles.push([row, col]);
+            gameState.stats.dynamicObstacles++;
+            placedPokemon++;
+        }
+    }
+    
+    // Logs informativos
+    addLogEntry('system', `🎲 ${description}`);
+    addLogEntry('system', `📊 Gerado: ${placedObstacles} obstáculos, ${placedPokemon} pokémon`);
+    
+    // Verificar se caminho é possível
+    const testPath = findPath(gameState.start, gameState.goal, gameState.obstacles.concat(gameState.dynamicObstacles));
+    if (testPath.length === 0) {
+        addLogEntry('error', '⚠️ Cenário impossível detectado! Removendo alguns obstáculos...');
+        fixImpossibleScenario();
+    } else {
+        addLogEntry('success', `✅ Cenário válido! Caminho de ${testPath.length} passos encontrado`);
+        
+        // Calcular e mostrar caminho automaticamente
+        gameState.currentPath = testPath;
+        gameState.originalPath = [...testPath];
+        gameState.stats.pathLength = testPath.length;
+        
+        addLogEntry('pathfinding', `🧠 Caminho calculado automaticamente: ${testPath.length} passos`);
+        addLogEntry('system', `🚀 Pronto para iniciar! Clique em "🚶 Iniciar Caminhada" quando quiser`);
+    }
+    
+    // Atualizar visual
+    updateVisualAfterScenarioGeneration();
+}
+
+function generateMaze(type) {
+    // Parar caminhada se estiver ativa
+    if (isWalking) {
+        stopWalking();
+    }
+    
+    // Limpar cenário atual
+    clearCurrentScenario();
+    
+    switch(type) {
+        case 'spiral':
+            generateSpiralMaze();
+            break;
+        case 'zigzag':
+            generateZigZagMaze();
+            break;
+        case 'cross':
+            generateCrossMaze();
+            break;
+        case 'chambers':
+            generateChambersMaze();
+            break;
+    }
+    
+    // Adicionar alguns pokémon aleatórios
+    addRandomPokemonToMaze(2, 4);
+    
+    // Calcular caminho automaticamente
+    const mazePath = findPath(gameState.start, gameState.goal, gameState.obstacles.concat(gameState.dynamicObstacles));
+    if (mazePath.length === 0) {
+        addLogEntry('error', '⚠️ Labirinto sem solução! Corrigindo...');
+        fixImpossibleScenario();
+    } else {
+        gameState.currentPath = mazePath;
+        gameState.originalPath = [...mazePath];
+        gameState.stats.pathLength = mazePath.length;
+        
+        addLogEntry('pathfinding', `🧠 Caminho do labirinto calculado: ${mazePath.length} passos`);
+        addLogEntry('success', `🏆 Labirinto ${type} pronto! Clique em "🚶 Iniciar Caminhada"`);
+    }
+    
+    // Atualizar visual
+    updateVisualAfterScenarioGeneration();
+}
+
+function generateSpiralMaze() {
+    addLogEntry('system', '🌪️ Gerando labirinto em espiral...');
+    
+    // Criar espiral do centro para fora
+    const center = Math.floor(GRID_SIZE / 2);
+    let radius = 1;
+    
+    while (radius < center) {
+        // Lado superior
+        for (let col = center - radius; col <= center + radius; col++) {
+            if (isValidObstaclePosition(center - radius, col)) {
+                gameState.obstacles.push([center - radius, col]);
+            }
+        }
+        
+        // Lado direito
+        for (let row = center - radius + 1; row <= center + radius; row++) {
+            if (isValidObstaclePosition(row, center + radius)) {
+                gameState.obstacles.push([row, center + radius]);
+            }
+        }
+        
+        // Lado inferior (se não for a mesma linha do topo)
+        if (radius > 0) {
+            for (let col = center + radius - 1; col >= center - radius; col--) {
+                if (isValidObstaclePosition(center + radius, col)) {
+                    gameState.obstacles.push([center + radius, col]);
+                }
+            }
+        }
+        
+        // Lado esquerdo (se não for a mesma coluna da direita)
+        if (radius > 0) {
+            for (let row = center + radius - 1; row > center - radius; row--) {
+                if (isValidObstaclePosition(row, center - radius)) {
+                    gameState.obstacles.push([row, center - radius]);
+                }
+            }
+        }
+        
+        radius += 2; // Pular uma linha para criar corredor
+    }
+    
+    addLogEntry('success', `✅ Espiral gerada com ${gameState.obstacles.length} obstáculos`);
+}
+
+function generateZigZagMaze() {
+    addLogEntry('system', '⚡ Gerando labirinto zigue-zague...');
+    
+    for (let row = 1; row < GRID_SIZE - 1; row += 2) {
+        // Linha horizontal
+        for (let col = 1; col < GRID_SIZE - 1; col++) {
+            if (isValidObstaclePosition(row, col)) {
+                gameState.obstacles.push([row, col]);
+            }
+        }
+        
+        // Conexão vertical alternada
+        if (row < GRID_SIZE - 2) {
+            const connectCol = (row / 2) % 2 === 0 ? 1 : GRID_SIZE - 2;
+            if (isValidObstaclePosition(row + 1, connectCol)) {
+                gameState.obstacles.push([row + 1, connectCol]);
+            }
+        }
+    }
+    
+    addLogEntry('success', `✅ Zigue-zague gerado com ${gameState.obstacles.length} obstáculos`);
+}
+
+function generateCrossMaze() {
+    addLogEntry('system', '✨ Gerando labirinto em cruz...');
+    
+    const center = Math.floor(GRID_SIZE / 2);
+    
+    // Cruz vertical
+    for (let row = 1; row < GRID_SIZE - 1; row++) {
+        if (row !== center && isValidObstaclePosition(row, center)) {
+            gameState.obstacles.push([row, center]);
+        }
+    }
+    
+    // Cruz horizontal
+    for (let col = 1; col < GRID_SIZE - 1; col++) {
+        if (col !== center && isValidObstaclePosition(center, col)) {
+            gameState.obstacles.push([center, col]);
+        }
+    }
+    
+    // Quadrantes com obstáculos esparsos
+    for (let quad = 0; quad < 4; quad++) {
+        const startRow = quad < 2 ? 1 : center + 1;
+        const endRow = quad < 2 ? center - 1 : GRID_SIZE - 2;
+        const startCol = quad % 2 === 0 ? 1 : center + 1;
+        const endCol = quad % 2 === 0 ? center - 1 : GRID_SIZE - 2;
+        
+        // Adicionar alguns obstáculos aleatórios em cada quadrante
+        const obstaclesPerQuad = 3 + Math.floor(Math.random() * 3);
+        for (let i = 0; i < obstaclesPerQuad; i++) {
+            const row = startRow + Math.floor(Math.random() * (endRow - startRow + 1));
+            const col = startCol + Math.floor(Math.random() * (endCol - startCol + 1));
+            
+            if (isValidObstaclePosition(row, col)) {
+                gameState.obstacles.push([row, col]);
+            }
+        }
+    }
+    
+    addLogEntry('success', `✅ Cruz gerada com ${gameState.obstacles.length} obstáculos`);
+}
+
+function generateChambersMaze() {
+    addLogEntry('system', '🏠 Gerando labirinto de câmaras...');
+    
+    // Criar câmaras 3x3 com corredores
+    const chamberSize = 3;
+    const chambers = [];
+    
+    for (let r = 0; r < GRID_SIZE; r += chamberSize + 1) {
+        for (let c = 0; c < GRID_SIZE; c += chamberSize + 1) {
+            chambers.push({row: r, col: c});
+        }
+    }
+    
+    chambers.forEach(chamber => {
+        // Criar paredes da câmara
+        for (let dr = 0; dr < chamberSize; dr++) {
+            for (let dc = 0; dc < chamberSize; dc++) {
+                const row = chamber.row + dr;
+                const col = chamber.col + dc;
+                
+                // Paredes externas da câmara
+                if (dr === 0 || dr === chamberSize - 1 || dc === 0 || dc === chamberSize - 1) {
+                    if (isValidObstaclePosition(row, col)) {
+                        gameState.obstacles.push([row, col]);
+                    }
+                }
+            }
+        }
+        
+        // Criar uma abertura aleatória em cada parede
+        const walls = ['top', 'right', 'bottom', 'left'];
+        const openWall = walls[Math.floor(Math.random() * walls.length)];
+        
+        let openRow, openCol;
+        switch(openWall) {
+            case 'top':
+                openRow = chamber.row;
+                openCol = chamber.col + Math.floor(Math.random() * chamberSize);
+                break;
+            case 'bottom':
+                openRow = chamber.row + chamberSize - 1;
+                openCol = chamber.col + Math.floor(Math.random() * chamberSize);
+                break;
+            case 'left':
+                openRow = chamber.row + Math.floor(Math.random() * chamberSize);
+                openCol = chamber.col;
+                break;
+            case 'right':
+                openRow = chamber.row + Math.floor(Math.random() * chamberSize);
+                openCol = chamber.col + chamberSize - 1;
+                break;
+        }
+        
+        // Remover obstáculo da abertura
+        gameState.obstacles = gameState.obstacles.filter(obs => 
+            !(obs[0] === openRow && obs[1] === openCol));
+    });
+    
+    addLogEntry('success', `✅ Câmaras geradas com ${gameState.obstacles.length} obstáculos`);
+}
+
+function isValidObstaclePosition(row, col) {
+    // Não pode ser início ou fim
+    if ((row === gameState.start[0] && col === gameState.start[1]) ||
+        (row === gameState.goal[0] && col === gameState.goal[1])) {
+        return false;
+    }
+    
+    // Não pode já ter obstáculo
+    if (gameState.obstacles.some(obs => obs[0] === row && obs[1] === col) ||
+        gameState.dynamicObstacles.some(obs => obs[0] === row && obs[1] === col)) {
+        return false;
+    }
+    
+    // Deve estar dentro dos limites
+    return row >= 0 && row < GRID_SIZE && col >= 0 && col < GRID_SIZE;
+}
+
+function clearCurrentScenario() {
+    gameState.obstacles = [];
+    gameState.dynamicObstacles = [];
+    gameState.currentPath = [];
+    gameState.visitedCells = [];
+    gameState.steppedCells = [];
+    gameState.detourCells = [];
+    gameState.customPath = [];
+    gameState.waypoints = [];
+    gameState.stats.dynamicObstacles = 0;
+    gameState.stats.replanningCount = 0;
+    gameState.stats.cellsProcessed = 0;
+    gameState.stats.pathLength = 0;
+}
+
+function fixImpossibleScenario() {
+    // Remove obstáculos aleatórios até encontrar um caminho
+    let attempts = 0;
+    const maxAttempts = 20;
+    
+    while (attempts < maxAttempts) {
+        const testPath = findPath(gameState.start, gameState.goal, gameState.obstacles.concat(gameState.dynamicObstacles));
+        if (testPath.length > 0) {
+            addLogEntry('success', `✅ Cenário corrigido! Caminho encontrado com ${testPath.length} passos`);
+            
+            // Aplicar caminho corrigido
+            gameState.currentPath = testPath;
+            gameState.originalPath = [...testPath];
+            gameState.stats.pathLength = testPath.length;
+            
+            addLogEntry('pathfinding', `🧠 Caminho calculado após correção: ${testPath.length} passos`);
+            addLogEntry('system', `🚀 Cenário pronto! Clique em "🚶 Iniciar Caminhada"`);
+            return;
+        }
+        
+        // Remove um obstáculo aleatório
+        if (gameState.obstacles.length > 0) {
+            const randomIndex = Math.floor(Math.random() * gameState.obstacles.length);
+            const removed = gameState.obstacles.splice(randomIndex, 1)[0];
+            addLogEntry('system', `🔧 Removido obstáculo em (${removed[0]},${removed[1]})`);
+        }
+        
+        attempts++;
+    }
+    
+    addLogEntry('error', '❌ Não foi possível corrigir o cenário. Gerando cenário simples...');
+    generateSimpleFallbackScenario();
+}
+
+function generateSimpleFallbackScenario() {
+    clearCurrentScenario();
+    // Cenário super simples garantido
+    gameState.obstacles = [[2,2], [3,3], [6,6], [7,7]];
+    gameState.dynamicObstacles = [[4,4]];
+    gameState.stats.dynamicObstacles = 1;
+    
+    // Calcular caminho do fallback
+    const fallbackPath = findPath(gameState.start, gameState.goal, gameState.obstacles.concat(gameState.dynamicObstacles));
+    gameState.currentPath = fallbackPath;
+    gameState.originalPath = [...fallbackPath];
+    gameState.stats.pathLength = fallbackPath.length;
+    
+    addLogEntry('system', '🛟 Cenário de fallback gerado - sempre funciona!');
+    addLogEntry('pathfinding', `🧠 Caminho fallback: ${fallbackPath.length} passos`);
+    addLogEntry('success', `✅ Pronto para começar!`);
+}
+
+function addRandomPokemonToMaze(min, max) {
+    const pokemonCount = min + Math.floor(Math.random() * (max - min + 1));
+    let added = 0;
+    
+    for (let i = 0; i < pokemonCount * 5 && added < pokemonCount; i++) {
+        const row = Math.floor(Math.random() * GRID_SIZE);
+        const col = Math.floor(Math.random() * GRID_SIZE);
+        
+        if (isValidObstaclePosition(row, col)) {
+            gameState.dynamicObstacles.push([row, col]);
+            gameState.stats.dynamicObstacles++;
+            added++;
+        }
+    }
+    
+    addLogEntry('system', `🐛 Adicionados ${added} pokémon ao labirinto`);
+}
+
+function updateVisualAfterScenarioGeneration() {
+    // Sempre atualizar estatísticas
+    updateStats();
+    
+    if (currentMode === 'interactive') {
+        // No modo interativo, usar o caminho já calculado
+        updateGridVisually();
+    } else if (currentMode === 'custom') {
+        updateGridVisually();
+    } else {
+        // No modo demo, mostrar o grid com o cenário gerado
+        createGrid();
+    }
+    
+    // Criar personagem na posição inicial
+    createCharacter();
+}
+
+// === SISTEMA DE TEMA ===
+function toggleTheme() {
+    const body = document.body;
+    const themeToggle = document.getElementById('theme-toggle');
+    
+    body.classList.toggle('dark-theme');
+    
+    if (body.classList.contains('dark-theme')) {
+        themeToggle.textContent = '☀️ Modo Claro';
+        localStorage.setItem('darkTheme', 'true');
+        addLogEntry('system', '🌙 Tema escuro ativado - muito melhor para os olhos!');
+    } else {
+        themeToggle.textContent = '🌙 Modo Escuro';
+        localStorage.setItem('darkTheme', 'false');
+        addLogEntry('system', '☀️ Tema claro ativado');
+    }
+}
+
+function loadTheme() {
+    const savedTheme = localStorage.getItem('darkTheme');
+    const body = document.body;
+    const themeToggle = document.getElementById('theme-toggle');
+    
+    if (savedTheme === 'true') {
+        body.classList.add('dark-theme');
+        themeToggle.textContent = '☀️ Modo Claro';
+    } else {
+        body.classList.remove('dark-theme');
+        themeToggle.textContent = '🌙 Modo Escuro';
+    }
+}
+
 // Inicialização
 window.addEventListener('load', function() {
+    loadTheme(); // Carregar tema salvo
     createGrid(demoSteps[0]);
     
     // Adicionar eventos globais do mouse para desenho

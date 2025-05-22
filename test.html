@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Teste do Projeto</title>
+</head>
+<body>
+    <h1>Teste das Melhorias Implementadas</h1>
+    
+    <h2>✅ Funcionalidades Implementadas:</h2>
+    <ul>
+        <li><strong>Obstáculos que se movem durante a execução</strong> - No modo interativo, obstáculos Pokémon se movem automaticamente a cada 2 segundos</li>
+        <li><strong>Cor especial para células de desvio</strong> - Células em rosa/magenta quando o robô precisa desviar do caminho original</li>
+        <li><strong>Transições suaves entre modos</strong> - Animações com scale e opacity ao trocar entre modos</li>
+        <li><strong>Efeitos de brilho na aproximação final</strong> - Quando o robô está a 3 células ou menos do destino, há efeitos de brilho</li>
+        <li><strong>🌙 Tema Dark</strong> - Botão no canto superior direito para alternar entre tema claro e escuro, com preferência salva no localStorage</li>
+        <li><strong>🎲 Gerador de Cenários</strong> - Sistema completo de geração aleatória com 3 níveis de dificuldade e 4 tipos de labirintos clássicos</li>
+    </ul>
+    
+    <h2>🎮 Como Testar:</h2>
+    <ol>
+        <li>Abra o arquivo <code>index.html</code> no navegador</li>
+        <li><strong>🌙 Clique no botão "Modo Escuro"</strong> no canto superior direito para proteger seus olhos!</li>
+        <li><strong>🎲 Teste o Gerador de Cenários</strong> com os botões Fácil/Médio/Difícil ou os labirintos (Espiral, Zigue-Zague, Cruz, Câmaras)</li>
+        <li>Teste o <strong>Modo Interativo</strong> para ver obstáculos móveis</li>
+        <li>Teste o <strong>Modo Desenhar</strong> com transições suaves</li>
+        <li>Inicie uma caminhada e observe os efeitos de brilho quando chegar perto do destino</li>
+        <li>Coloque obstáculos no caminho para ver as células de desvio em rosa</li>
+    </ol>
+    
+    <h2>🎨 Detalhes Técnicos:</h2>
+    <ul>
+        <li><strong>Obstáculos Móveis:</strong> Sistema com direção, velocidade e colisão</li>
+        <li><strong>Detecção de Desvios:</strong> Compara com o caminho original para destacar desvios</li>
+        <li><strong>Animações CSS:</strong> Keyframes para brilho, pulso e transições</li>
+        <li><strong>Efeitos Visuais:</strong> Glow, shake, pulse, fade-in e bounce</li>
+        <li><strong>🌙 Tema Dark:</strong> CSS com variáveis dark-theme, localStorage para persistência</li>
+    </ul>
+    
+    <a href="index.html" style="
+        background: linear-gradient(45deg, #2196F3, #21CBF3);
+        color: white;
+        padding: 15px 30px;
+        text-decoration: none;
+        border-radius: 8px;
+        font-weight: bold;
+        display: inline-block;
+        margin-top: 20px;
+    ">🚀 Abrir Simulador</a>
+</body>
+</html>

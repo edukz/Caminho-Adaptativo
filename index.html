@@ -11,6 +11,7 @@
         <div class="header">
             <h1>🎮 A* Adaptativo - Simulador Interativo</h1>
             <p>Demonstração visual do algoritmo de pathfinding mais inteligente</p>
+            <button class="theme-toggle" onclick="toggleTheme()" id="theme-toggle">🌙 Modo Escuro</button>
         </div>
         
         <div class="main-content">
@@ -41,10 +42,11 @@
                 <!-- Sistema de Log -->
                 <div class="log-system">
                     <div class="log-header">
-                        <h4>📋 Log do Sistema</h4>
+                        <h4>📋 Log do Sistema <span class="log-capacity">(máx: 1000 entradas)</span></h4>
                         <div class="log-controls">
                             <button onclick="clearLog()" class="log-btn">🗑️ Limpar</button>
                             <button onclick="toggleAutoScroll()" class="log-btn" id="auto-scroll-btn">📜 Auto-scroll: ON</button>
+                            <button onclick="showLogStats()" class="log-btn">📊 Stats</button>
                         </div>
                     </div>
                     <div class="log-container" id="log-container">
@@ -72,6 +74,22 @@
                         <button onclick="nextStep()" id="next-btn">➡️ Próximo Passo</button>
                         <button onclick="resetDemo()" class="danger">🔄 Resetar</button>
                         <button onclick="autoPlay()" id="auto-btn">⏯️ Auto Play</button>
+                    </div>
+                    
+                    <!-- Gerador de Cenários -->
+                    <div class="scenario-generator" id="scenario-controls">
+                        <h4>🎲 Gerador de Cenários</h4>
+                        <div class="scenario-buttons">
+                            <button onclick="generateRandomScenario('easy')" class="scenario-btn easy">🟢 Fácil</button>
+                            <button onclick="generateRandomScenario('medium')" class="scenario-btn medium">🟡 Médio</button>
+                            <button onclick="generateRandomScenario('hard')" class="scenario-btn hard">🔴 Difícil</button>
+                        </div>
+                        <div class="maze-buttons">
+                            <button onclick="generateMaze('spiral')" class="maze-btn">🌪️ Espiral</button>
+                            <button onclick="generateMaze('zigzag')" class="maze-btn">⚡ Zigue-Zague</button>
+                            <button onclick="generateMaze('cross')" class="maze-btn">✨ Cruz</button>
+                            <button onclick="generateMaze('chambers')" class="maze-btn">🏠 Câmaras</button>
+                        </div>
                     </div>
                     
                     <!-- Controle de velocidade (Demo e Interativo) -->
